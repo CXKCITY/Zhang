@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- One appearance: midnight navy behind every screen, so the window
+         never flashes a different colour before Compose draws. -->
+    <style name="Theme.ExpenseTracker" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#F5F7FB</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+
+    <style name="Theme.ExpenseTracker.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#F5F7FB</item>
+        <item name="postSplashScreenTheme">@style/Theme.ExpenseTracker</item>
+    </style>
+</resources>
