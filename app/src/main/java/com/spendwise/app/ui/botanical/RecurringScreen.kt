@@ -129,7 +129,7 @@ fun RecurringScreen(
                         modifier = Modifier.fillMaxWidth().padding(top = 20.dp)
                     )
                     Note(
-                        "打开清记时会自动补记到期账单 暂停期间不记账 恢复后从下一次到期日继续",
+                        "打开账时会自动补记到期账单 暂停期间不记账 恢复后从下一次到期日继续",
                         Modifier.padding(top = 25.dp)
                     )
                 }

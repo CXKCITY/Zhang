@@ -54,7 +54,7 @@ fun BulkRecordActions(
             text = { Column(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState())) {
                 Text("已选 ${pending.size} 笔 · 合计 ${formatRm(pendingAmount)}")
                 if (deleting) {
-                    Text("删除后无法撤销 支出统计和预算会同步更新", modifier = Modifier.padding(top=12.dp))
+                    Text("删除后可在底部提示中撤销 支出统计和预算会同步更新", modifier = Modifier.padding(top = 12.dp))
                 } else {
                     Text("只修改分类 金额 日期和消费内容保持不变", modifier = Modifier.padding(top=12.dp))
                     categories.filter { !it.isIncomeAdjustment }.forEach { category ->

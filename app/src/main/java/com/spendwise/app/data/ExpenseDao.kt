@@ -176,6 +176,9 @@ interface ExpenseDao {
     @Insert
     suspend fun insert(expense: ExpenseEntity): Long
 
+    @Insert
+    suspend fun restoreSelected(expenses: List<ExpenseEntity>)
+
     @Update
     suspend fun update(expense: ExpenseEntity)
 
@@ -240,7 +243,7 @@ interface CategoryDao {
 
     // Built-ins can be renamed and re-illustrated, but their income/expense
     // kind is fixed — it's what routes every existing entry into the right
-    // total, and built-ins can't be deleted to start over.
+    // total.
     @Query(
         """
         UPDATE categories
@@ -255,8 +258,8 @@ interface CategoryDao {
         iconName: String
     ): Int
 
-    @Query("DELETE FROM categories WHERE id = :id AND isCustom = 1")
-    suspend fun deleteCustomCategory(id: Long): Int
+    @Query("DELETE FROM categories WHERE id = :id")
+    suspend fun deleteCategory(id: Long): Int
 
     @Query("SELECT COUNT(*) FROM expenses WHERE categoryId = :categoryId")
     suspend fun expenseCountForCategory(categoryId: Long): Int

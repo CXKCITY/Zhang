@@ -1,6 +1,8 @@
-# 清记 QingLedger
+# 账
 
-清记是一款离线 Android 支出账本。支持按月浏览明细、消费日历、分类预算、支出统计、批量管理和 JSON 备份恢复。
+账是一款离线 Android 支出账本。支持按月浏览明细、消费日历、分类预算、支出统计、批量管理和 JSON 备份恢复。
+
+当前源码版本为 1.8.11。设置等次级页面支持从左边缘向右拖动返回。
 
 - Android 8.0 及以上，Kotlin、Jetpack Compose、Room
 - 使用 Android Studio 打开本项目，安装 Android SDK 36，选择 JDK 17

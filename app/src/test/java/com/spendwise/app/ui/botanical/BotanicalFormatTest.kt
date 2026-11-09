@@ -52,6 +52,7 @@ class BotanicalFormatTest {
         assertEquals("9月", monthShortGb(9))
         val today = LocalDate.of(2026, 9, 26)
         assertEquals("今天", dayHeading(today, today))
-        assertEquals("2026年9月25日", dayHeading(today.minusDays(1), today))
+        assertEquals("昨日", dayHeading(today.minusDays(1), today))
+        assertEquals("2026年9月24日", dayHeading(today.minusDays(2), today))
     }
 }

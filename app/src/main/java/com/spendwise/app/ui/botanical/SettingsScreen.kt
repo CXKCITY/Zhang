@@ -48,7 +48,7 @@ fun backupTimeLabel(millis: Long): String {
     return "${shortDateLabel(at.toLocalDate())}, ${at.format(SavedAt)}"
 }
 
-/** Human name for a SAF tree URI ("Download/SpendWise" → "清记"). */
+/** Human name for a SAF tree URI ("Download/SpendWise" → "账"). */
 fun backupFolderName(treeUri: String): String = runCatching {
     val decoded = Uri.decode(Uri.parse(treeUri).lastPathSegment.orEmpty())
     decoded.substringAfter(':').substringAfterLast('/').ifBlank { decoded.substringBefore(':') }
@@ -115,7 +115,7 @@ fun SettingsScreen(
                 )
             }
             Note(
-                "清记会每天在指定文件夹保存一份备份 保留最近七份自动备份 手动保存的备份不会被删除",
+                "账会每天在指定文件夹保存一份备份 保留最近七份自动备份 手动保存的备份不会被删除",
                 Modifier.padding(start = 4.dp, end = 4.dp, top = 10.dp)
             )
             val shownError = rememberRetained(backup.lastError)
@@ -142,7 +142,7 @@ fun SettingsScreen(
                 SettingsRow(BotIcons.Info, "开源致谢", "贡献者、源代码与许可证", chevron = true,
                     last = true, onClick = { creditsOpen = true })
             }
-            Note("清记 ${com.spendwise.app.BuildConfig.VERSION_NAME} · 本地账本\n基于 SpendWise · MIT 开源许可", Modifier.padding(start = 4.dp, top = 28.dp, bottom = 16.dp))
+            Note("账 ${com.spendwise.app.BuildConfig.VERSION_NAME} · 本地账本\n基于 SpendWise · MIT 开源许可", Modifier.padding(start = 4.dp, top = 28.dp, bottom = 16.dp))
         }
         OpenSourceCredits(creditsOpen) { creditsOpen = false }
     }

@@ -17,8 +17,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -69,12 +72,35 @@ internal fun HomeHero(
     val widthDp = LocalConfiguration.current.screenWidthDp
     val balanceSize = (widthDp * 0.12f).coerceIn(35f, 49f)
     val expenseCategories = remember(categories) { categories.filterNot { it.isIncomeAdjustment } }
+    val palette = LedgerAppearance.current
+    val dark = LedgerAppearance.dark
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp))
-            .background(Brush.verticalGradient(listOf(LedgerAppearance.current.heroStart, LedgerAppearance.current.heroEnd)))
+            .drawWithCache {
+                val gradient = Brush.verticalGradient(listOf(palette.heroStart, palette.heroEnd))
+                val orbit = Offset(size.width * .91f, size.height * .35f)
+                val radius = size.width * .22f
+                val halo = Brush.radialGradient(
+                    colors = listOf(Color.White.copy(alpha = if (dark) .10f else .16f), Color.Transparent),
+                    center = orbit,
+                    radius = radius * 1.35f,
+                )
+                val hairline = Stroke(width = 1.dp.toPx())
+                onDrawBehind {
+                    drawRect(gradient)
+                    drawRect(halo)
+                    drawCircle(Color.White, radius, orbit, alpha = .13f, style = hairline)
+                    drawCircle(Color.White, radius * .71f, orbit, alpha = .09f, style = hairline)
+                    if (dark) {
+                        drawCircle(Color.White, 1.35.dp.toPx(), orbit + Offset(-radius * .84f, -radius * .53f), alpha = .44f)
+                        drawCircle(Color.White, .8.dp.toPx(), orbit + Offset(radius * .12f, -radius * .65f), alpha = .34f)
+                        drawCircle(Color.White, .9.dp.toPx(), orbit + Offset(-radius * .48f, radius * .48f), alpha = .27f)
+                    }
+                }
+            }
             .padding(start = 16.dp, end = 16.dp, top = statusTop + 6.dp, bottom = 16.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -91,7 +117,7 @@ internal fun HomeHero(
         }
 
         Text(
-            "清记  /  本月支出",
+            "账  /  本月支出",
             style = body(13f, FontWeight.Medium),
             color = Color.White.copy(alpha = 0.9f),
             modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)

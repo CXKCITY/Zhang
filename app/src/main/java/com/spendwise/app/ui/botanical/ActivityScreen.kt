@@ -644,7 +644,7 @@ fun FilterSheet(
             Reveal(visible = useRange) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 16.dp)) {
                     DateField("从", from, Modifier.weight(1f)) { picking = "from" }
-                    DateField("To", to, Modifier.weight(1f)) { picking = "to" }
+                    DateField("到", to, Modifier.weight(1f)) { picking = "to" }
                 }
             }
             AnimatedError(
@@ -687,7 +687,7 @@ private fun FilterOption(label: String, selected: Boolean, onClick: () -> Unit) 
         modifier = Modifier
             .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(99.dp))
-            .background(animatedColor(if (selected) Bot.ActionSolid else Color(0xFFF0F2F6), "optionFill"))
+            .background(animatedColor(if (selected) Bot.ActionSolid else Bot.ChipBg, "optionFill"))
             .botPress(onClick = onClick)
             .semantics { this.selected = selected }
             .padding(horizontal = 16.dp, vertical = 10.dp),

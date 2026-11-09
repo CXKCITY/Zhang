@@ -20,8 +20,19 @@ object LedgerAppearance {
     val options = listOf("亮色", "暗色", "拿铁", "摩卡")
     val dark get() = choice == "暗色" || choice == "摩卡"
     private var context: Context? = null
-    fun load(c: Context) { context = c.applicationContext; choice = c.getSharedPreferences("appearance", 0).getString("palette", "亮色")?.takeIf { it in options } ?: "亮色" }
-    fun select(value: String) { require(value in options); choice = value; context?.getSharedPreferences("appearance", 0)?.edit()?.putString("palette", value)?.apply() }
+    fun load(c: Context) {
+        context = c.applicationContext
+        choice = c.getSharedPreferences("appearance", 0)
+            .getString("palette", "亮色")?.takeIf { it in options } ?: "亮色"
+    }
+
+    fun select(value: String) {
+        require(value in options)
+        choice = value
+        context?.let {
+            it.getSharedPreferences("appearance", 0).edit().putString("palette", value).apply()
+        }
+    }
     fun palette(name: String): LedgerPalette = when(name) {
         "暗色" -> LedgerPalette(Color(0xFF0B1220), Color(0xFF172235), Color(0xFFE5EDF8), Color(0xFFAABAD0), Color(0xFF2563EB), Color(0xFF22324A), Color(0xFF34445E), Color(0xFF0F172A), Color(0xFF1E3A8A))
         "拿铁" -> LedgerPalette(Color(0xFFF5EBDD), Color(0xFFFFFAF2), Color(0xFF432E22), Color(0xFF765C48), Color(0xFF8B5E34), Color(0xFFEDE0CD), Color(0xFFDBCAAF), Color(0xFF6F4E37), Color(0xFF9A6C47))

@@ -56,7 +56,6 @@ object BotIcons {
         )
     }
     val Calendar by lazy { icon("Calendar", roundRect(3f, 5f, 18f, 16f, 3f), "M3 10h18M8 3v4m8-4v4") }
-    val Share by lazy { icon("Share", "M12 15V3m-5 5 5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7") }
 
     /** The Activity "About net cash flow" glyph (drawn inline in the prototype). */
     val Info by lazy { icon("Info", circle(12f, 12f, 9f), "M12 11v6", circle(12f, 7f, .8f)) }

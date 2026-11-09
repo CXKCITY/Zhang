@@ -47,7 +47,7 @@ internal fun OpenSourceCredits(visible: Boolean, onDismiss: () -> Unit) {
         title = credit?.name ?: "开源致谢"
     ) {
         if (credit == null) {
-            Note("清记基于 SpendWise 修改。感谢以下项目及其贡献者")
+            Note("账基于 SpendWise 修改。感谢以下项目及其贡献者")
             credits.forEach { entry ->
                 Column(Modifier.padding(top = 12.dp)) {
                     TextLinkButton(entry.name, onClick = { selected = entry }, color = Bot.ActionSolid)

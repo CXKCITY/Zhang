@@ -111,6 +111,7 @@ fun InsightsScreen(
     onMonthChange: (YearMonth) -> Unit,
     onOpenPeriodPicker: () -> Unit,
     onCategory: (Category, InsightsPeriod) -> Unit,
+    onDay: (java.time.LocalDate) -> Unit,
     onExportCsv: (InsightsPeriod) -> Unit
 ) {
     var exportMenuOpen by remember { mutableStateOf(false) }
@@ -203,7 +204,24 @@ fun InsightsScreen(
                 }
             }
             item(key = "cashflow") {
-                Box(itemMotion().padding(top = 20.dp)) { ExpenseBars(bars = if (scope == InsightsScope.Year) ExpenseChartData.year(month.year, aggregates) else ExpenseChartData.month(month, state.summary.dailyTotals), annual = scope == InsightsScope.Year) }
+                Box(itemMotion().padding(top = 20.dp)) {
+                    val annual = scope == InsightsScope.Year
+                    val loadedMonth = state.summary.month
+                    val bars = remember(annual, month.year, aggregates, state.summary) {
+                        if (annual) ExpenseChartData.year(month.year, aggregates)
+                        else ExpenseChartData.month(loadedMonth, state.summary.dailyTotals)
+                    }
+                    ExpenseBars(
+                        bars = bars,
+                        annual = annual,
+                        selectableCount = if (annual) bars.size else when {
+                            loadedMonth < YearMonth.from(todayKl()) -> bars.size
+                            loadedMonth == YearMonth.from(todayKl()) -> todayKl().dayOfMonth
+                            else -> 0
+                        },
+                        onOpenDay = if (annual) null else { index -> onDay(loadedMonth.atDay(index + 1)) }
+                    )
+                }
             }
             item(key = "categories") {
                 Panel(itemMotion().padding(top = 14.dp)) {
@@ -238,10 +256,12 @@ fun InsightsScreen(
                                     onDark = false
                                 )
                             } else {
-                                CategoryPie(shown.shares) { share -> onCategory(share.category, shown.period) }
+                                val colors = remember(shown.shares.size) { categoryChartColors(shown.shares.size) }
+                                CategoryDonut(shown.shares, colors) { share -> onCategory(share.category, shown.period) }
                                 shown.shares.forEachIndexed { index, share ->
                                     BreakdownRow(
                                         share = share,
+                                        color = colors[index],
                                         total = shown.total,
                                         modeLabel = shown.mode.label.lowercase(),
                                         showDivider = index < shown.shares.lastIndex,
@@ -264,15 +284,14 @@ fun InsightsScreen(
 }
 
 @Composable
-private fun BreakdownRow(share: CategoryShare, total: Long, modeLabel: String, showDivider: Boolean, onClick: () -> Unit) {
-    val art = share.category.art
+private fun BreakdownRow(share: CategoryShare, color: Color, total: Long, modeLabel: String, showDivider: Boolean, onClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().botRowPress(onClick = onClick)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Box(Modifier.size(12.dp).clip(CircleShape).background(art.color))
+            Box(Modifier.size(12.dp).clip(CircleShape).background(color))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
@@ -297,7 +316,7 @@ private fun BreakdownRow(share: CategoryShare, total: Long, modeLabel: String, s
                 )
             }
         }
-        if (showDivider) Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEDF0F3)))
+        if (showDivider) Box(Modifier.fillMaxWidth().height(1.dp).background(Bot.RuleSoft))
     }
 }
 

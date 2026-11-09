@@ -1,11 +1,16 @@
 package com.spendwise.app.ui.botanical
 
-import android.content.Intent
+
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
@@ -56,6 +61,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -79,6 +86,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.compose.NavHost
@@ -97,6 +105,7 @@ import java.time.LocalDateTime
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 private object Routes {
@@ -177,11 +186,34 @@ private val popExit: AnimatedContentTransitionScope<NavBackStackEntry>.() -> Exi
  * tab pill and survive tab switches.
  */
 @Composable
-fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
+fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel, launchCoverVisible: Boolean = false) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val toast = remember { BotToastState() }
+    suspend fun recordAction(block: suspend () -> Unit): String? = try {
+        block()
+        null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: IllegalArgumentException) {
+        e.message ?: "操作失败 请重试"
+    } catch (e: IllegalStateException) {
+        e.message ?: "操作失败 请重试"
+    } catch (_: Exception) {
+        "操作失败 请重试"
+    }
+
+    fun offerUndo(message: String, restore: suspend () -> Unit) {
+        toast.show(message) {
+            scope.launch {
+                val error = recordAction { restore() }
+                if (toast.undoAction == null) {
+                    toast.show(if (error == null) "已撤销删除" else "撤销失败 记录未恢复")
+                }
+            }
+        }
+    }
 
     val rawState by viewModel.dashboardState.collectAsStateWithLifecycle()
     val state = rawState.copy(categories = CategoryOrder.sort(rawState.categories))
@@ -353,11 +385,14 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
     val view = LocalView.current
     val entryUp = entryShown != null
     val paperUnderStatusBar = route == Routes.Home && homeHeroCovered && !entryUp
+    val lightLaunchBars = !LedgerAppearance.dark
     SideEffect {
         val window = activity?.window ?: return@SideEffect
         WindowCompat.getInsetsController(window, view).apply {
-            isAppearanceLightStatusBars = !LedgerAppearance.dark && (route != Routes.Home || paperUnderStatusBar)
-            isAppearanceLightNavigationBars = !LedgerAppearance.dark && !entryUp
+            isAppearanceLightStatusBars = if (launchCoverVisible) lightLaunchBars
+                else !LedgerAppearance.dark && (route != Routes.Home || paperUnderStatusBar)
+            isAppearanceLightNavigationBars = if (launchCoverVisible) lightLaunchBars
+                else !LedgerAppearance.dark && !entryUp
         }
     }
     val statusScrim by animateColorAsState(
@@ -378,6 +413,38 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
     val tabClearance = 70.dp + navBottom + 16.dp
     val pageClearance = navInset + 32.dp
 
+    val navBackdrop = rememberNavBackdrop()
+    val edgePreviews = mapOf(
+        Routes.Home to rememberNavBackdrop(),
+        Routes.Settings to rememberNavBackdrop(),
+    )
+    val edgeImages = remember { mutableMapOf<String, ImageBitmap>() }
+    var capturingEdgePage by remember { mutableStateOf(false) }
+    fun openPage(destination: String) {
+        if (capturingEdgePage) return
+        val source = route
+        val layer = edgePreviews[source]?.layer
+        if (source == null || layer == null || layer.size.width == 0) {
+            navController.navigate(destination)
+            return
+        }
+        capturingEdgePage = true
+        scope.launch {
+            try {
+                edgeImages[source] = layer.toImageBitmap()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                edgeImages.remove(source)
+            } finally {
+                capturingEdgePage = false
+            }
+            if (navController.currentBackStackEntry == backStack) navController.navigate(destination)
+        }
+    }
+    val edgeOffset = remember(route) { mutableStateOf(0f) }
+    var edgePopFrom by remember { mutableStateOf<String?>(null) }
+    val previousRoute = navController.previousBackStackEntry?.destination?.route
     CompositionLocalProvider(LocalToast provides toast) {
         Box(Modifier.fillMaxSize().background(Bot.PageDeep)) {
             // Everything under the entry card: it recedes while the card is up.
@@ -397,13 +464,48 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
                         }
                     }
             ) {
+                Box(Modifier.fillMaxSize().drawBehind {
+                    if (edgeOffset.value > 0f) {
+                        edgeImages[previousRoute]?.let { drawImage(it) }
+                    }
+                }) {
                 NavHost(
                     navController = navController,
                     startDestination = Routes.Home,
+                    modifier = Modifier
+                        .edgeSwipeBack(
+                            enabled = !onTab && previousRoute != null && !entryUp,
+                            page = route,
+                            offset = edgeOffset,
+                            scope = scope,
+                            onBack = {
+                                if (navController.currentBackStackEntry == backStack) {
+                                    edgePopFrom = route
+                                    navController.popBackStack()
+                                    scope.launch {
+                                        kotlinx.coroutines.delay(350)
+                                        if (edgePopFrom == route) edgePopFrom = null
+                                    }
+                                }
+                            },
+                        )
+                        .graphicsLayer { translationX = edgeOffset.value }
+                        .recordNavBackdrop(if (onTab || route == null) navBackdrop else null)
+                        .drawWithContent {
+                            val preview = edgePreviews[route]
+                            if (preview != null && edgeOffset.value == 0f) {
+                                preview.layer.record { this@drawWithContent.drawContent() }
+                                drawLayer(preview.layer)
+                            } else drawContent()
+                        },
                     enterTransition = pushEnter,
                     exitTransition = pushExit,
-                    popEnterTransition = popEnter,
-                    popExitTransition = popExit
+                    popEnterTransition = {
+                        if (initialState.destination.route == edgePopFrom) EnterTransition.None else popEnter(this)
+                    },
+                    popExitTransition = {
+                        if (initialState.destination.route == edgePopFrom) ExitTransition.None else popExit(this)
+                    }
                 ) {
                     composable(Routes.Home) {
                         val pageMonth = state.summary.month
@@ -458,8 +560,8 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
                                             viewModel.setSelectedMonth(target)
                                         },
                                         onOpenPeriodPicker = { periodPickerOpen = true },
-                                        onOpenSettings = { navController.navigate(Routes.Settings) },
-                                        onOpenCategories = { navController.navigate(Routes.Categories) },
+                                        onOpenSettings = { openPage(Routes.Settings) },
+                                        onOpenCategories = { openPage(Routes.Categories) },
                                         onCategory = { breakdown = BreakdownRequest(it.id, InsightsPeriod.OfMonth(pageMonth)) },
                                         onAdd = { openEntry(EntryKind.Expense, todayKl()) }
                                     )
@@ -469,9 +571,11 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
                                 onOpenFilters = { filtersOpen = true },
                                 onOpenItem = { detail = it },
                                 onManage = { ids, categoryId ->
-                                    val error = viewModel.manageExpenses(ids, categoryId)
-                                    if (error == null) toast.show("已${if (categoryId == null) "删除" else "修改分类"} ${ids.size} 笔记录")
-                                    error
+                                    recordAction {
+                                        val restore = viewModel.manageExpenses(ids, categoryId)
+                                        if (restore == null) toast.show("已修改分类 ${ids.size} 笔记录")
+                                        else offerUndo("已删除 ${ids.size} 笔记录", restore)
+                                    }
                                 }
                             )
                         }
@@ -498,6 +602,7 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
                             onMonthChange = changeMonth,
                             onOpenPeriodPicker = { periodPickerOpen = true },
                             onCategory = { category, period -> breakdown = BreakdownRequest(category.id, period) },
+                            onDay = { dayOpen = it.toString() },
                             onExportCsv = { period ->
                                 when (period) {
                                     is InsightsPeriod.OfMonth -> viewModel.exportCsv(
@@ -566,9 +671,9 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
                             backup = backupSettings,
                             bottomPadding = pageClearance,
                             onBack = { navController.popBackStack() },
-                            onAccounts = { navController.navigate(Routes.Accounts) },
-                            onCategories = { navController.navigate(Routes.Categories) },
-                            onRecurring = { navController.navigate(Routes.Recurring) },
+                            onAccounts = { openPage(Routes.Accounts) },
+                            onCategories = { openPage(Routes.Categories) },
+                            onRecurring = { openPage(Routes.Recurring) },
                             onBackupNow = {
                                 val folder = backupSettings.treeUri
                                 if (folder != null) {
@@ -594,6 +699,8 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
                     }
                 }
 
+                }
+
                 // Keeps status-bar icons legible over content scrolling beneath them.
                 Box(Modifier.fillMaxWidth().height(statusTop).background(statusScrim))
 
@@ -610,7 +717,7 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
                         .align(Alignment.BottomCenter)
                         .padding(start = 16.dp, end = 16.dp, bottom = navBottom)
                 ) {
-                    BottomNav(active = lastTab, onSelect = goTab)
+                    BottomNav(active = lastTab, onSelect = goTab, backdrop = navBackdrop)
                 }
             }
 
@@ -729,26 +836,23 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
                 onDelete = { item ->
                     confirm = ConfirmRequest(
                         title = "删除这笔记录",
-                        body = "删除后将同步还原账户余额",
+                        body = "删除后可在底部提示中撤销",
                         action = "删除记录"
                     ) {
-                        when (item) {
-                            is LedgerItem.Entry -> viewModel.deleteExpense(item.expense.id)
-                            is LedgerItem.Move -> viewModel.deleteTransfer(item.transfer.id)
+                        scope.launch {
+                            val error = recordAction {
+                                val restore = when (item) {
+                                    is LedgerItem.Entry -> viewModel.deleteExpense(item.expense.id)
+                                    is LedgerItem.Move -> viewModel.deleteTransfer(item.transfer.id)
+                                }
+                                if (detail?.key == item.key) detail = null
+                                offerUndo("记录已删除", restore)
+                            }
+                            if (error != null) toast.show(error)
                         }
-                        detail = null
-                        toast.show("记录已删除")
                     }
                 },
                 onOpenHistory = { expense -> detail = LedgerItem.Entry(expense, expense.categoryId in incomeIds) },
-                onShare = { text ->
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_SUBJECT, "清记交易记录")
-                        putExtra(Intent.EXTRA_TEXT, text)
-                    }
-                    runCatching { context.startActivity(Intent.createChooser(send, "分享记录")) }
-                },
                 onDismiss = { detail = null }
             )
 
@@ -774,9 +878,11 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
                     }
                     error
                 },
-                onDelete = editingCategory?.takeIf { it.isCustom }?.let { category ->
+                onDelete = editingCategory?.let { category ->
                     {
-                        if (categoryUsed) {
+                        if (!category.isIncomeAdjustment && state.categories.count { !it.isIncomeAdjustment } <= 1) {
+                            toast.show("至少保留一个支出分类")
+                        } else if (categoryUsed) {
                             categoryForm = null
                             migrationFor = category.id
                         } else {
@@ -785,15 +891,17 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
                                 body = "此分类没有关联记录 可以删除",
                                 action = "删除分类"
                             ) {
-                                when (val result = viewModel.deleteCategory(category.id)) {
-                                    DeleteCategoryResult.Deleted -> {
-                                        categoryForm = null
-                                        toast.show("已删除 ${category.name}")
-                                    }
-                                    is DeleteCategoryResult.Blocked -> toast.show(result.reason)
-                                    is DeleteCategoryResult.NeedsStrategy -> {
-                                        categoryForm = null
-                                        migrationFor = category.id
+                                scope.launch {
+                                    when (val result = viewModel.deleteCategory(category.id)) {
+                                        DeleteCategoryResult.Deleted -> {
+                                            categoryForm = null
+                                            toast.show("已删除 ${category.name}")
+                                        }
+                                        is DeleteCategoryResult.Blocked -> toast.show(result.reason)
+                                        is DeleteCategoryResult.NeedsStrategy -> {
+                                            categoryForm = null
+                                            migrationFor = category.id
+                                        }
                                     }
                                 }
                             }
@@ -819,15 +927,27 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
                 },
                 onMove = { destination ->
                     val category = migrating ?: return@CategoryMigrationSheet
-                    viewModel.deleteCategoryWithStrategy(category.id, CategoryDeletion.Migrate(destination))
-                    migrationFor = null
-                    toast.show("已迁移记录并删除 ${category.name}")
+                    scope.launch {
+                        val error = recordAction {
+                            check(viewModel.deleteCategoryWithStrategy(category.id, CategoryDeletion.Migrate(destination))) { "分类未删除 至少保留一个支出分类" }
+                        }
+                        if (error == null) {
+                            migrationFor = null
+                            toast.show("已迁移记录并删除 ${category.name}")
+                        } else toast.show(error)
+                    }
                 },
                 onDeleteAll = {
                     val category = migrating ?: return@CategoryMigrationSheet
-                    viewModel.deleteCategoryWithStrategy(category.id, CategoryDeletion.DeleteExpenses)
-                    migrationFor = null
-                    toast.show("已删除 ${category.name} 及关联记录")
+                    scope.launch {
+                        val error = recordAction {
+                            check(viewModel.deleteCategoryWithStrategy(category.id, CategoryDeletion.DeleteExpenses)) { "分类未删除 至少保留一个支出分类" }
+                        }
+                        if (error == null) {
+                            migrationFor = null
+                            toast.show("已删除 ${category.name} 及关联记录")
+                        } else toast.show(error)
+                    }
                 }
             )
 
@@ -958,31 +1078,66 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel) {
  * little with its speed, and each label turns white as it passes beneath.
  */
 @Composable
-private fun BottomNav(active: String?, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun BottomNav(
+    active: String?,
+    onSelect: (String) -> Unit,
+    backdrop: NavBackdrop?,
+    modifier: Modifier = Modifier
+) {
     val haptics = LocalHapticFeedback.current
     val index = Tab.entries.indexOfFirst { it.route == active }.coerceAtLeast(0)
-    val position = remember { Animatable(index.toFloat()) }
-    LaunchedEffect(index) {
-        position.animateTo(index.toFloat(), spring(dampingRatio = 0.78f, stiffness = stiffnessFor(0.36f)))
-    }
+    var dragPosition by remember { mutableStateOf<Float?>(null) }
+    val currentIndex by rememberUpdatedState(index)
+    val selectTab by rememberUpdatedState(onSelect)
+    val position by animateFloatAsState(
+        dragPosition ?: index.toFloat(),
+        spring(dampingRatio = 0.72f, stiffness = stiffnessFor(0.31f)),
+        label = "navLensPosition"
+    )
+    val shape = RoundedCornerShape(999.dp)
     Row(
         modifier = modifier
             .widthIn(max = 340.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(999.dp))
-            .background(Bot.NavBg)
-            .border(1.dp, Bot.NavBorder, RoundedCornerShape(999.dp))
+            .clip(shape)
+            .navGlass(backdrop)
+            .border(1.dp, Brush.verticalGradient(listOf(
+                Color.White.copy(alpha = if (LedgerAppearance.dark) 0.34f else 0.95f),
+                Bot.NavBorder,
+                Bot.NavBorder.copy(alpha = 0.8f)
+            )), shape)
+            .pointerInput(Unit) {
+                fun positionAt(x: Float) =
+                    (x / size.width.coerceAtLeast(1) * Tab.entries.size - 0.5f)
+                        .coerceIn(0f, Tab.entries.lastIndex.toFloat())
+                detectHorizontalDragGestures(
+                    onDragStart = { dragPosition = positionAt(it.x) },
+                    onDragCancel = { dragPosition = null },
+                    onDragEnd = {
+                        val target = dragPosition?.let { (it + 0.5f).toInt() }
+                        dragPosition = null
+                        if (target != null && target != currentIndex) {
+                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            selectTab(Tab.entries[target].route)
+                        }
+                    }
+                ) { change, _ ->
+                    change.consume()
+                    dragPosition = positionAt(change.position.x)
+                }
+            }
             .padding(5.dp)
             .drawBehind {
                 val gap = 4.dp.toPx()
                 val count = Tab.entries.size
                 val tab = (size.width - gap * (count - 1)) / count
-                // Up to 12% wider mid-flight, like a droplet being pulled along.
-                val stretch = (abs(position.velocity) / 50f).coerceAtMost(0.12f)
+                val stretch = if (dragPosition == null) 0f else 0.08f
                 val width = tab * (1f + stretch)
-                val left = position.value * (tab + gap) - (width - tab) / 2f
+                val left = position.coerceIn(0f, Tab.entries.lastIndex.toFloat()) * (tab + gap) - (width - tab) / 2f
                 drawRoundRect(
-                    color = Bot.NavActive,
+                    brush = Brush.verticalGradient(listOf(
+                        lerp(Bot.NavActive, Color.White, 0.15f), Bot.NavActive, Bot.NavActive
+                    )),
                     topLeft = Offset(left, 0f),
                     size = Size(width, size.height),
                     cornerRadius = CornerRadius(size.height / 2f)
@@ -992,7 +1147,7 @@ private fun BottomNav(active: String?, onSelect: (String) -> Unit, modifier: Mod
     ) {
         Tab.entries.forEachIndexed { i, tab ->
             val selected = tab.route == active
-            val cover = (1f - abs(position.value - i)).coerceIn(0f, 1f)
+            val cover = (1f - abs(position - i)).coerceIn(0f, 1f)
             val ink = lerp(Bot.NavInk, Color.White, cover)
             Column(
                 modifier = Modifier

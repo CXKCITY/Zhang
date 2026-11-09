@@ -46,6 +46,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -71,6 +72,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
@@ -445,21 +447,31 @@ fun ConfirmSheet(request: ConfirmRequest?, onDismiss: () -> Unit) {
 
 // ── Toast ────────────────────────────────────────────────────────────────────
 
-/** Short status line above the navigation (`.b-toast`), 3.2s. */
+/** Short status line above the navigation, with an optional one-shot undo. */
 @Stable
 class BotToastState {
     var message by mutableStateOf<String?>(null)
         private set
     var serial by mutableStateOf(0)
         private set
+    var undoAction by mutableStateOf<(() -> Unit)?>(null)
+        private set
 
-    fun show(text: String) {
+    fun show(text: String, undo: (() -> Unit)? = null) {
         message = text
+        undoAction = undo
         serial++
     }
 
     fun clear() {
         message = null
+        undoAction = null
+    }
+
+    fun undo() {
+        val action = undoAction ?: return
+        clear()
+        action()
     }
 }
 
@@ -467,9 +479,14 @@ val LocalToast = staticCompositionLocalOf { BotToastState() }
 
 @Composable
 fun BotToastHost(state: BotToastState, bottomOffset: Dp, modifier: Modifier = Modifier) {
+    val accessibility = LocalAccessibilityManager.current
     LaunchedEffect(state.serial) {
         if (state.message != null) {
-            delay(3200)
+            val hasUndo = state.undoAction != null
+            val duration = if (hasUndo) 8_000L else 3_200L
+            delay(accessibility?.calculateRecommendedTimeoutMillis(
+                duration, containsText = true, containsControls = hasUndo
+            ) ?: duration)
             state.clear()
         }
     }
@@ -487,19 +504,29 @@ fun BotToastHost(state: BotToastState, bottomOffset: Dp, modifier: Modifier = Mo
                 scaleOut(BotMotion.smooth(0.3f), targetScale = 0.94f),
             modifier = Modifier.padding(bottom = offset, start = 20.dp, end = 20.dp)
         ) {
-            Text(
-                shown.orEmpty(),
-                style = body(12f, FontWeight.Medium, lineHeight = 1.4f),
-                color = Color.White,
-                textAlign = TextAlign.Center,
+            Row(
                 modifier = Modifier
                     .shadow(12.dp, RoundedCornerShape(99.dp), ambientColor = Color(0x33000000), spotColor = Color(0x33000000))
                     .clip(RoundedCornerShape(99.dp))
                     .background(Color(0xFF101626))
                     .border(1.dp, Color(0x35FFFFFF), RoundedCornerShape(99.dp))
-                    .padding(horizontal = 22.dp, vertical = 13.dp)
-                    .semantics { liveRegion = LiveRegionMode.Polite }
-            )
+                    .padding(horizontal = 16.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    shown.orEmpty(),
+                    style = body(12f, FontWeight.Medium, lineHeight = 1.4f),
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 13.dp).weight(1f, fill = false)
+                )
+                if (state.undoAction != null) {
+                    TextButton(onClick = state::undo) {
+                        Text("撤销", color = Color(0xFFBBD5FF), fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
         }
     }
 }

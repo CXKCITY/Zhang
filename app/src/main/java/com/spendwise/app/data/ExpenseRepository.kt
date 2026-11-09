@@ -49,7 +49,7 @@ sealed interface ArchiveAccountResult {
 interface ExpenseRepository {
     fun noteSuggestions(categoryId: Long, query: String, excludeId: Long): Flow<List<com.spendwise.app.domain.NoteSuggestion>>
 
-    suspend fun manageExpenses(ids: Set<Long>, categoryId: Long?): Int
+    suspend fun manageExpenses(ids: Set<Long>, categoryId: Long?): (suspend () -> Unit)?
 
     /**
      * Expenses whose occurrence falls in `[startMillis, endMillis)`. Every
@@ -153,18 +153,18 @@ interface ExpenseRepository {
     /**
      * Delete a custom category. Succeeds if zero expenses reference it.
      * Returns false if it's a built-in, doesn't exist, or still has expenses
-     * — for the last case, call [deleteCustomCategory] with a strategy.
+     * — for the last case, call [deleteCategory] with a strategy.
      */
-    suspend fun deleteCustomCategory(id: Long): Boolean
+    suspend fun deleteCategory(id: Long): Boolean
 
     /**
      * Delete a custom category that still has expenses, applying [strategy]
      * (reassign to another category, or wipe the expenses along with it) in a
      * single atomic transaction.
      */
-    suspend fun deleteCustomCategory(id: Long, strategy: CategoryDeletion): Boolean
+    suspend fun deleteCategory(id: Long, strategy: CategoryDeletion): Boolean
 
-    suspend fun deleteExpense(id: Long)
+    suspend fun deleteExpense(id: Long): suspend () -> Unit
 
     /**
      * Create a new account. Returns the new account id on success, or a
@@ -227,7 +227,7 @@ interface ExpenseRepository {
         occurredAtMillis: Long
     )
 
-    suspend fun deleteTransfer(id: Long)
+    suspend fun deleteTransfer(id: Long): suspend () -> Unit
 
     // ── Recurring transactions ───────────────────────────────────────────
 

@@ -28,13 +28,3 @@ docs/user-guide/pdf-pages/
 keystore.properties
 *.jks
 *.keystore
-
-*.p12
-*.pfx
-*.apk
-*.aab
-*.db
-*.db-wal
-*.db-shm
-.env
-.env.*

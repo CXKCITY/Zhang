@@ -24,8 +24,8 @@ android {
         applicationId = "cn.qingji.ledger"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
-        versionName = "1.7.2"
+        versionCode = 49
+        versionName = "1.8.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

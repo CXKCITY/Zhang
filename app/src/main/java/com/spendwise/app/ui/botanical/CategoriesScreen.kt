@@ -270,15 +270,7 @@ private fun CategoryFormBody(
         },
         modifier = Modifier.fillMaxWidth().padding(top = 22.dp)
     )
-    if (builtIn) {
-        Text(
-            "内置分类支持修改名称 图标和预算 无法删除",
-            style = body(12f, lineHeight = 1.6f),
-            color = Bot.SheetMuted,
-            modifier = Modifier.padding(top = 12.dp)
-        )
-    }
-    if (existing != null && existing.isCustom && onDelete != null) {
+    if (existing != null && onDelete != null) {
         TextLinkButton("删除分类", onClick = onDelete, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
         if (used) {
             FormCaption("删除分类前 请先选择迁移或删除关联记录和周期规则")

@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,25 +56,8 @@ fun DetailRows(rows: List<Pair<String, String>>, modifier: Modifier = Modifier) 
     }
 }
 
-/** Plain-text summary for the share sheet. */
-fun shareText(item: LedgerItem, categoriesById: Map<Long, Category>, names: Map<Long, String>): String {
-    val text = rowText(item, categoriesById, names)
-    val accounts = when (item) {
-        is LedgerItem.Entry -> names[item.expense.accountId].orEmpty()
-        is LedgerItem.Move -> "${item.transfer.fromAccountName} → ${item.transfer.toAccountName}"
-    }
-    val notes = when (item) {
-        is LedgerItem.Entry -> item.expense.notes
-        is LedgerItem.Move -> item.transfer.notes
-    }
-    return listOf(text.title, "${item.kind.label} · ¥ ${formatAmount(item.cents)}", dateLabel(item.date), notes)
-        .filter { it.isNotBlank() }
-        .distinct()
-        .joinToString("\n")
-}
-
 /**
- * One entry: its art and signed amount, the facts, sharing, and — for
+ * One entry: its art and signed amount, the facts, and — for
  * expenses and income — the other entries with the same name.
  */
 @Composable
@@ -84,26 +69,42 @@ fun EntryDetailSheet(
     onEdit: (LedgerItem) -> Unit,
     onDelete: (LedgerItem) -> Unit,
     onOpenHistory: (Expense) -> Unit,
-    onShare: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val shown = rememberRetained(item)
     val text = shown?.let { rowText(it, categoriesById, names) }
     BotSheet(visible = item != null, onDismiss = onDismiss, title = text?.title.orEmpty()) {
         if (shown == null || text == null) return@BotSheet
-        Column(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (text.art != null) {
-                ArtImage(text.art, size = 72.dp, modifier = Modifier.padding(bottom = 14.dp))
-            } else {
-                BotIcon(BotIcons.Transfer, size = 50.dp, tint = Bot.Ink, modifier = Modifier.padding(bottom = 20.dp))
+        Box(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 22.dp)) {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (text.art != null) {
+                    ArtImage(text.art, size = 72.dp, modifier = Modifier.padding(bottom = 14.dp))
+                } else {
+                    BotIcon(BotIcons.Transfer, size = 50.dp, tint = Bot.Ink, modifier = Modifier.padding(bottom = 20.dp))
+                }
+                EntryMoney(
+                    cents = shown.cents,
+                    kind = shown.kind,
+                    style = moneyStyle(53f, letterSpacingPx = -2f),
+                    centsScale = 0.65f,
+                    align = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
-            EntryMoney(
-                cents = shown.cents,
-                kind = shown.kind,
-                style = moneyStyle(53f, letterSpacingPx = -2f),
-                centsScale = 0.65f,
-                align = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
+            CircleIconButton(
+                icon = BotIcons.Edit,
+                contentDescription = "编辑",
+                onClick = { onEdit(shown) },
+                modifier = Modifier.align(Alignment.TopStart),
+                size = 48.dp,
+            )
+            CircleIconButton(
+                icon = Icons.Outlined.DeleteOutline,
+                contentDescription = "删除",
+                onClick = { onDelete(shown) },
+                modifier = Modifier.align(Alignment.TopEnd),
+                size = 48.dp,
+                tint = Bot.DangerInk,
             )
         }
         val rows = buildList {
@@ -122,13 +123,6 @@ fun EntryDetailSheet(
             }
         }
         DetailRows(rows)
-        BotButton(
-            "分享记录",
-            onClick = { onShare(shareText(shown, categoriesById, names)) },
-            type = ButtonType.Secondary,
-            icon = BotIcons.Share,
-            modifier = Modifier.fillMaxWidth().padding(top = 20.dp)
-        )
         if (shown is LedgerItem.Entry) {
             var history by remember(shown.expense.id) { mutableStateOf<List<Expense>>(emptyList()) }
             LaunchedEffect(shown.expense.id, shown.expense.merchant) {
@@ -175,10 +169,6 @@ fun EntryDetailSheet(
                     }
                 }
             }
-        }
-        ButtonRow {
-            BotButton("编辑", onClick = { onEdit(shown) }, type = ButtonType.Secondary, icon = BotIcons.Edit, modifier = Modifier.weight(1f).fillMaxHeight())
-            BotButton("删除", onClick = { onDelete(shown) }, type = ButtonType.Danger, modifier = Modifier.weight(1f).fillMaxHeight())
         }
     }
 }

@@ -494,7 +494,7 @@ fun CircleIconButton(
 ) {
     val (bg, border, ink) = when (tone) {
         IconButtonTone.OnDark -> Triple(Color(0x18FFFFFF), Color(0x40FFFFFF), Color.White)
-        IconButtonTone.OnLight -> Triple(Color(0xFFF0F1F3), Color(0xFFE4E6E9), Bot.Ink)
+        IconButtonTone.OnLight -> Triple(Bot.ChipBg, Bot.Rule, Bot.Ink)
         IconButtonTone.Plain -> Triple(Color.Transparent, Color.Transparent, Color.White)
     }
     Box(
@@ -909,8 +909,12 @@ fun <T> PillSegment(
             pillBg = Bot.ActionSolid; pillBorder = Color.Transparent; selectedInk = Color.White; quietInk = Bot.Ink
         }
         SegmentTone.OnLight -> {
-            containerBg = Color(0xFFEDF0F4); containerBorder = Color(0xFFE1E5ED)
-            pillBg = Color.White; pillBorder = Color.Transparent; selectedInk = Bot.Navy; quietInk = Bot.Ink
+            containerBg = Bot.ChipBg
+            containerBorder = Bot.Rule
+            pillBg = if (LedgerAppearance.dark) Bot.ActionSolid else Bot.Surface
+            pillBorder = Color.Transparent
+            selectedInk = if (LedgerAppearance.dark) Color.White else Bot.Ink
+            quietInk = Bot.Ink
         }
         SegmentTone.Entry -> {
             containerBg = Color(0x80FFFFFF); containerBorder = Color(0x90FFFFFF)

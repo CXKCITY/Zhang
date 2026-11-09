@@ -296,7 +296,7 @@ class ExpenseTrackerViewModel(
                     getApplication(),
                     csv,
                     "Qingji-$fileStem.csv",
-                    "清记 · $periodLabel"
+                    "账 · $periodLabel"
                 )
             }
             userMessage.value = if (shared) {
@@ -470,20 +470,10 @@ class ExpenseTrackerViewModel(
         return true
     }
 
-    suspend fun manageExpenses(ids: Set<Long>, categoryId: Long?): String? = try {
+    suspend fun manageExpenses(ids: Set<Long>, categoryId: Long?) =
         expenseRepository.manageExpenses(ids, categoryId)
-        null
-    } catch (e: kotlinx.coroutines.CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        e.message ?: "操作失败 请重试"
-    }
 
-    fun deleteExpense(id: Long) {
-        viewModelScope.launch {
-            expenseRepository.deleteExpense(id)
-        }
-    }
+    suspend fun deleteExpense(id: Long) = expenseRepository.deleteExpense(id)
 
     // ── Transfers ────────────────────────────────────────────────────────
 
@@ -550,11 +540,7 @@ class ExpenseTrackerViewModel(
         return true
     }
 
-    fun deleteTransfer(id: Long) {
-        viewModelScope.launch {
-            expenseRepository.deleteTransfer(id)
-        }
-    }
+    suspend fun deleteTransfer(id: Long) = expenseRepository.deleteTransfer(id)
 
     fun createCategory(
         nameInput: String,
@@ -641,28 +627,23 @@ class ExpenseTrackerViewModel(
         return null
     }
 
-    fun deleteCategory(categoryId: Long): DeleteCategoryResult {
+    suspend fun deleteCategory(categoryId: Long): DeleteCategoryResult {
         val category = dashboardState.value.categories.firstOrNull { it.id == categoryId }
             ?: return DeleteCategoryResult.Blocked("该分类已不存在")
-        if (!category.isCustom) {
-            return DeleteCategoryResult.Blocked("内置分类无法删除")
+        if (!category.isIncomeAdjustment && dashboardState.value.categories.count { !it.isIncomeAdjustment } <= 1) {
+            return DeleteCategoryResult.Blocked("至少保留一个支出分类")
         }
         val expenseCount = categoryEntryCounts.value[categoryId] ?: 0
         if (expenseCount > 0) {
             return DeleteCategoryResult.NeedsStrategy(expenseCount)
         }
 
-        viewModelScope.launch {
-            expenseRepository.deleteCustomCategory(categoryId)
-        }
-        return DeleteCategoryResult.Deleted
+        return if (expenseRepository.deleteCategory(categoryId)) DeleteCategoryResult.Deleted
+        else DeleteCategoryResult.Blocked("分类未删除 请重新打开后再试")
     }
 
-    fun deleteCategoryWithStrategy(categoryId: Long, strategy: CategoryDeletion) {
-        viewModelScope.launch {
-            expenseRepository.deleteCustomCategory(categoryId, strategy)
-        }
-    }
+    suspend fun deleteCategoryWithStrategy(categoryId: Long, strategy: CategoryDeletion) =
+        expenseRepository.deleteCategory(categoryId, strategy)
 
     // One-shot StateFlow the Settings UI consumes for snackbar messages.
     // Null = nothing to show. Callers should reset to null after surfacing

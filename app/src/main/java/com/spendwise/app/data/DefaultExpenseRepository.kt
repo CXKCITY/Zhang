@@ -33,18 +33,27 @@ class DefaultExpenseRepository(
     override fun noteSuggestions(categoryId: Long, query: String, excludeId: Long) =
         expenseDao.noteSuggestions(categoryId, query, excludeId, 8)
 
-    override suspend fun manageExpenses(ids: Set<Long>, categoryId: Long?): Int = database.withTransaction {
+    override suspend fun manageExpenses(ids: Set<Long>, categoryId: Long?): (suspend () -> Unit)? = database.withTransaction {
         val categories = categoryDao.allOnce()
-        val records = ids.toList().chunked(400).flatMap { expenseDao.selectedOnce(it) }.associate { it.id to it.categoryId }
-        com.spendwise.app.domain.BulkExpenseRules.validate(ids, records,
+        val chunks = ids.toList().chunked(400)
+        val records = chunks.flatMap { expenseDao.selectedOnce(it) }
+        com.spendwise.app.domain.BulkExpenseRules.validate(ids, records.associate { it.id to it.categoryId },
             categories.filter { it.isIncomeAdjustment }.map { it.id }.toSet(),
             categories.filter { !it.isIncomeAdjustment }.map { it.id }.toSet(), categoryId)
-        var count = 0
-        ids.toList().chunked(400).forEach { chunk ->
-            count += if (categoryId == null) expenseDao.deleteSelected(chunk) else expenseDao.categorizeSelected(chunk, categoryId)
+        if (categoryId == null) {
+            deleteExpenseRows(records)
+        } else {
+            val count = chunks.sumOf { expenseDao.categorizeSelected(it, categoryId) }
+            check(count == ids.size) { "部分记录已变化 请重新选择" }
+            null
         }
-        check(count == ids.size) { "部分记录已变化 请重新选择" }
-        count
+    }
+
+    // Call inside the transaction that read these exact rows.
+    private suspend fun deleteExpenseRows(rows: List<ExpenseEntity>): suspend () -> Unit {
+        val count = rows.map { it.id }.chunked(400).sumOf { expenseDao.deleteSelected(it) }
+        check(count == rows.size) { "部分记录已变化 请重新选择" }
+        return { database.withTransaction { expenseDao.restoreSelected(rows) } }
     }
 
     override val categories: Flow<List<Category>> = categoryDao
@@ -289,24 +298,31 @@ class DefaultExpenseRepository(
         ) > 0
     }
 
-    override suspend fun deleteCustomCategory(id: Long): Boolean {
-        if (categoryDao.expenseCountForCategory(id) > 0) return false
+    private suspend fun canDeleteCategory(id: Long): Boolean {
+        val categories = categoryDao.allOnce()
+        val category = categories.firstOrNull { it.id == id } ?: return false
+        return category.isIncomeAdjustment || categories.any { it.id != id && !it.isIncomeAdjustment }
+    }
+
+    override suspend fun deleteCategory(id: Long): Boolean {
         // A rule without its category is meaningless, so rules die with the
         // category (same transaction — the rules' RESTRICT FK would otherwise
         // block the category row's removal).
         return database.withTransaction {
+            if (!canDeleteCategory(id) || categoryDao.expenseCountForCategory(id) > 0) return@withTransaction false
             recurringRuleDao.deleteByCategory(id)
-            categoryDao.deleteCustomCategory(id) > 0
+            categoryDao.deleteCategory(id) > 0
         }
     }
 
-    override suspend fun deleteCustomCategory(id: Long, strategy: CategoryDeletion): Boolean {
+    override suspend fun deleteCategory(id: Long, strategy: CategoryDeletion): Boolean {
         // Single transaction: reassign-or-delete the expenses FIRST so the FK
         // (RESTRICT) is satisfied, then drop the category row. If any step
         // fails, the whole thing rolls back and the DB stays consistent.
         // Recurring rules follow the same strategy as the expenses: migrated
         // along on Migrate, dropped on DeleteExpenses.
         return database.withTransaction {
+            if (!canDeleteCategory(id)) return@withTransaction false
             when (strategy) {
                 is CategoryDeletion.Migrate -> {
                     if (strategy.destinationId == id) return@withTransaction false
@@ -318,12 +334,14 @@ class DefaultExpenseRepository(
                     recurringRuleDao.deleteByCategory(id)
                 }
             }
-            categoryDao.deleteCustomCategory(id) > 0
+            categoryDao.deleteCategory(id) > 0
         }
     }
 
-    override suspend fun deleteExpense(id: Long) {
-        expenseDao.deleteById(id)
+    override suspend fun deleteExpense(id: Long): suspend () -> Unit = database.withTransaction {
+        val rows = expenseDao.selectedOnce(listOf(id))
+        check(rows.isNotEmpty()) { "这笔记录已不存在" }
+        deleteExpenseRows(rows)
     }
 
     override suspend fun createAccount(
@@ -449,8 +467,11 @@ class DefaultExpenseRepository(
         }
     }
 
-    override suspend fun deleteTransfer(id: Long) {
+    override suspend fun deleteTransfer(id: Long): suspend () -> Unit = database.withTransaction {
+        val row = checkNotNull(transferDao.byId(id)) { "这笔记录已不存在" }
         transferDao.deleteById(id)
+        val restore: suspend () -> Unit = { transferDao.insert(row) }
+        restore
     }
 
     // ── Recurring transactions ───────────────────────────────────────────

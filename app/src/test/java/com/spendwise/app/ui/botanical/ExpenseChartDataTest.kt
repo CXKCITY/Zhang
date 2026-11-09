@@ -20,4 +20,10 @@ class ExpenseChartDataTest {
   assertEquals(1, ExpenseChartData.sliceIndex(1.0,listOf(25L,75L)))
   assertNull(ExpenseChartData.sliceIndex(0.0, listOf(0L,0L)))
  }
+
+ @Test fun categoryColorsStayUniqueBeyondTheBasePalette() {
+  val colors = categoryChartColors(48)
+  assertEquals(48, colors.toSet().size)
+  assertEquals(colors.take(16), categoryChartColors(16))
+ }
 }

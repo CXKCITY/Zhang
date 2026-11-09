@@ -103,6 +103,10 @@ fun dateLabel(date: LocalDate): String =
 fun shortDateLabel(date: LocalDate): String =
     "${date.monthValue}月${date.dayOfMonth}日"
 
-/** Day heading in lists: "今天" or "7 Sept 2026". */
+/** Relative labels for the two most recent day headings. */
 fun dayHeading(date: LocalDate, today: LocalDate = todayKl()): String =
-    if (date == today) "今天" else dateLabel(date)
+    when (date) {
+        today -> "今天"
+        today.minusDays(1) -> "昨日"
+        else -> dateLabel(date)
+    }
