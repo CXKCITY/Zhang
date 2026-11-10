@@ -663,6 +663,8 @@ class ExpenseTrackerViewModel(
     /** Reads a chosen backup file for the restore review; changes nothing. */
     suspend fun previewBackup(uri: Uri): BackupPreview = backupManager.previewBackup(uri)
 
+    fun startupBackupUri(): Uri = backupManager.startupBackupUri()
+
     fun importBackup(uri: Uri) {
         viewModelScope.launch {
             val result = backupManager.importBackup(uri)

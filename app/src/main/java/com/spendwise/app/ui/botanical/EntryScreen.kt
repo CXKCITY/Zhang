@@ -155,6 +155,7 @@ fun EntryScreen(
     onSaveTransfer: (id: Long?, amount: String, fromId: Long?, toId: Long?, notes: String, date: String) -> Boolean,
     onCreateCategory: (name: String, iconName: String, color: Long, isIncome: Boolean, budget: String) -> String?,
     onNoteSuggestions: (Long?, String, Long) -> kotlinx.coroutines.flow.Flow<List<com.spendwise.app.domain.NoteSuggestion>>,
+    active: Boolean,
     onClose: () -> Unit,
     onSaved: (date: LocalDate, updated: Boolean) -> Unit
 ) {
@@ -222,9 +223,10 @@ fun EntryScreen(
         }
     }
 
-    val close = { if (dirty) discardOpen = true else onClose() }
+    val close = { if (active) { if (dirty) discardOpen = true else onClose() } }
     // Predictive back lowers the card with the gesture, then closes it (or asks first).
-    PredictiveBackHandler(enabled = !calendarOpen && !discardOpen && !categoryFormOpen) { progress ->
+    val latestActive by rememberUpdatedState(active)
+    PredictiveBackHandler(enabled = active && !calendarOpen && !discardOpen && !categoryFormOpen) { progress ->
         try {
             progress.collect { event -> presentation.snapTo(1f - 0.08f * event.progress) }
             if (dirty) {
@@ -234,7 +236,7 @@ fun EntryScreen(
                 onClose()
             }
         } catch (cancelled: CancellationException) {
-            scope.launch { presentation.animateTo(1f, BotMotion.SheetOpen) }
+            scope.launch { if (latestActive) presentation.animateTo(1f, BotMotion.SheetOpen) }
             throw cancelled
         }
     }
@@ -302,6 +304,7 @@ fun EntryScreen(
     val latestDirty by rememberUpdatedState(dirty)
     val latestClose by rememberUpdatedState(onClose)
     val drag = remember(density) { EntryCardDrag(gap, presentation, scope, density, restingGap) }
+    drag.isActive = { latestActive }
     drag.onDetent = { expanded = it }
     drag.requestClose = {
         if (latestDirty) {
@@ -651,6 +654,7 @@ private class EntryCardDrag(
     private val density: Density,
     private val restingGap: Float
 ) {
+    var isActive: () -> Boolean = { true }
     var height = 0f
     var onDetent: (expanded: Boolean) -> Unit = {}
 
@@ -669,12 +673,13 @@ private class EntryCardDrag(
     }
 
     fun start() {
+        if (!isActive()) return
         dragging = true
         travel = positionNow()
     }
 
     fun by(delta: Float) {
-        if (height <= 0f) return
+        if (!isActive() || height <= 0f) return
         if (!dragging) start()
         travel += delta
         val position = travel
@@ -685,18 +690,17 @@ private class EntryCardDrag(
         }
         val lowered = (position - restingGap).coerceAtLeast(0f)
         scope.launch { gap.snapTo(shownGap) }
-        scope.launch { presentation.snapTo(1f - lowered / height) }
+        scope.launch { if (isActive()) presentation.snapTo(1f - lowered / height) }
     }
 
     fun release(velocity: Float) {
-        if (!dragging) return
+        if (!isActive() || !dragging) return
         dragging = false
         if (height <= 0f) return
         val lowered = (travel - restingGap).coerceAtLeast(0f)
         val scale = density.density
         if (lowered > 0f && (velocity > 900f * scale || lowered > height * 0.2f) && velocity > -400f * scale) {
             if (requestClose()) {
-                scope.launch { presentation.animateTo(0f, BotMotion.SheetClose, initialVelocity = -velocity / height) }
                 return
             }
             // Unsaved changes: the card rises back while the question shows.
@@ -720,7 +724,7 @@ private class EntryCardDrag(
             gap.animateTo(target, BotMotion.snappy(0.4f), initialVelocity = if (wasLowered) 0f else velocity)
         }
         scope.launch {
-            presentation.animateTo(1f, BotMotion.SheetOpen, initialVelocity = if (wasLowered) -velocity / height else 0f)
+            if (isActive()) presentation.animateTo(1f, BotMotion.SheetOpen, initialVelocity = if (wasLowered) -velocity / height else 0f)
         }
     }
 

@@ -91,6 +91,7 @@ fun HomeScreen(
     canFlipMonth: Boolean,
     enteringDirection: Int,
     onFlipMonth: (Int) -> Unit,
+    onJumpMonth: (YearMonth) -> Unit,
     onQueryChange: (ActivityQuery) -> Unit,
     onClearRange: () -> Unit,
     onClearAll: () -> Unit,
@@ -130,6 +131,9 @@ fun HomeScreen(
     val canGoNewer = month < YearMonth.from(todayKl())
     val gesturesEnabled = canFlipMonth && selectedIds.isEmpty()
     val latestFlip by rememberUpdatedState(onFlipMonth)
+    val shortcutThreshold = with(LocalDensity.current) { 72.dp.roundToPx() }
+    val monthShortcutsVisible = selectedIds.isEmpty() &&
+        (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset >= shortcutThreshold)
     val statusHeight = pageTopPadding() - 12.dp
     val statusHeightPx = with(LocalDensity.current) { statusHeight.roundToPx() }
     LaunchedEffect(listState, statusHeightPx) {
@@ -182,7 +186,7 @@ fun HomeScreen(
                     }
                 }
             },
-            contentPadding = PaddingValues(bottom = bottomPadding + if (selectedIds.isNotEmpty()) 150.dp else 0.dp)
+            contentPadding = PaddingValues(bottom = bottomPadding + if (selectedIds.isNotEmpty()) 150.dp else 54.dp)
         ) {
             item(key = "header") { hero() }
             item(key = "details-heading") {
@@ -322,6 +326,30 @@ fun HomeScreen(
                 ) {
                     Text("继续上划查看${month.minusMonths(1).monthValue}月", style = body(12f), color = Bot.PageMuted)
                 }
+            }
+        }
+        AnimatedVisibility(
+            visible = monthShortcutsVisible,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomPadding + 4.dp),
+            enter = fadeIn() + scaleIn(initialScale = 0.95f),
+            exit = fadeOut() + scaleOut(targetScale = 0.95f)
+        ) {
+            Row(
+                Modifier.clip(CircleShape).background(Bot.Surface)
+                    .border(1.dp, Bot.ChipBg, CircleShape).padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier.heightIn(min = 48.dp).botPress(enabled = gesturesEnabled && canGoNewer) { onJumpMonth(month.plusMonths(1)) }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) { Text("下个月", style = body(13f), color = if (canGoNewer) Bot.Ink else Bot.PageMuted) }
+                Text("${month.year}年${month.monthValue}月", style = body(13f), color = Bot.PageMuted)
+                Box(
+                    Modifier.heightIn(min = 48.dp).botPress(enabled = gesturesEnabled) { onJumpMonth(month.minusMonths(1)) }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) { Text("上个月", style = body(13f), color = Bot.Ink) }
             }
         }
         BulkRecordActions(selectedIds, shown.map { (it as LedgerItem.Entry).expense }, categories,

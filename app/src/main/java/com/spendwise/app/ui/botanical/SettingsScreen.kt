@@ -64,6 +64,7 @@ fun SettingsScreen(
     onRecurring: () -> Unit,
     onBackupNow: () -> Unit,
     onRestore: () -> Unit,
+    onRestoreStartup: () -> Unit,
     onToggleDaily: (Boolean) -> Unit,
     onChooseFolder: () -> Unit,
     onDownloadCopy: () -> Unit
@@ -95,14 +96,15 @@ fun SettingsScreen(
                     },
                     onClick = onBackupNow
                 )
-                SettingsRow(BotIcons.Upload, "从备份恢复", "JSON 备份 · 恢复前先检查", chevron = true, onClick = onRestore)
+                SettingsRow(BotIcons.Upload, "从文件导入", "合并 JSON 备份 · 保留现有记录", chevron = true, onClick = onRestore)
+                SettingsRow(BotIcons.Upload, "从最近自动备份补回", "检查设备上的最近一份自动备份", chevron = true, onClick = onRestoreStartup)
                 SettingsRow(
                     BotIcons.Repeat,
-                    "每日自动备份",
-                    "每天保存到指定文件夹",
+                    "同步到备份文件夹",
+                    "打开应用时及每天更新同一份文件",
                     onClick = { onToggleDaily(!backup.enabled) },
                     trailing = {
-                        BotToggle(checked = backup.enabled, onToggle = { onToggleDaily(!backup.enabled) }, label = "每日自动备份")
+                        BotToggle(checked = backup.enabled, onToggle = { onToggleDaily(!backup.enabled) }, label = "同步到备份文件夹")
                     }
                 )
                 SettingsRow(
@@ -115,7 +117,7 @@ fun SettingsScreen(
                 )
             }
             Note(
-                "账会每天在指定文件夹保存一份备份 保留最近七份自动备份 手动保存的备份不会被删除",
+                "每次打开应用都会更新一份本机备份。选择文件夹后，也可在指定位置更新同一份文件。",
                 Modifier.padding(start = 4.dp, end = 4.dp, top = 10.dp)
             )
             val shownError = rememberRetained(backup.lastError)

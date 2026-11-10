@@ -293,11 +293,10 @@ fun BreakdownSheet(
 /** A picked backup file, read but not yet applied. */
 data class RestoreReview(val uri: Uri, val fileName: String, val preview: BackupPreview.Ready)
 
-/** Shows what a backup holds before it replaces everything. */
+/** Shows what a backup holds before it is merged. */
 @Composable
 fun RestoreReviewSheet(
     review: RestoreReview?,
-    currentEntries: Int,
     onConfirm: (RestoreReview) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -315,13 +314,12 @@ fun RestoreReviewSheet(
             )
         )
         SheetText(
-            "这将替换当前的 $currentEntries 笔记录以及全部分类 预算和周期规则 " +
-                "启用中的周期规则会补记截至今天的到期记录",
+            "现有账本会保留，只补入缺少的记录、分类、预算和周期规则。",
             Modifier.padding(top = 16.dp)
         )
         ButtonRow {
             BotButton("取消", onClick = onDismiss, type = ButtonType.Secondary, modifier = Modifier.weight(1f).fillMaxHeight())
-            BotButton("恢复备份", onClick = { onConfirm(shown) }, modifier = Modifier.weight(1f).fillMaxHeight())
+            BotButton("合并导入", onClick = { onConfirm(shown) }, modifier = Modifier.weight(1f).fillMaxHeight())
         }
     }
 }

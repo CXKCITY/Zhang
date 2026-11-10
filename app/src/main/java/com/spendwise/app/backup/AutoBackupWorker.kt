@@ -20,23 +20,19 @@ import com.spendwise.app.ExpenseTrackerApplication
 import com.spendwise.app.export.BackupResult
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
-/**
- * Writes a dated JSON backup into the user-chosen SAF folder and prunes old
- * auto backups down to [BackupRotation.DEFAULT_KEEP]. Runs daily via the
- * unique periodic work enqueued in [schedule]; the Settings "立即备份"
- * button funnels through the same worker via [backupNow].
- *
- * R8: androidx.work's consumer rules keep ListenableWorker subclasses'
- * (Context, WorkerParameters) constructors, so no proguard-rules.pro entry
- * is needed for this class.
- */
+/** Keeps one rolling copy in the user-selected folder. */
 class AutoBackupWorker(
     appContext: Context,
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = folderLock.withLock { writeBackup() }
+
+    private suspend fun writeBackup(): Result {
         val container = (applicationContext as ExpenseTrackerApplication).container
         val store = container.backupPreferenceStore
 
@@ -55,8 +51,7 @@ class AutoBackupWorker(
                 return Result.failure()
             }
 
-            val fileName = BackupRotation.autoBackupFileName(System.currentTimeMillis())
-            val file = tree.createFile("application/json", fileName)
+            val file = tree.findFile(LATEST_FILE) ?: tree.createFile("application/json", LATEST_FILE)
             if (file == null) {
                 store.recordError(FOLDER_INACCESSIBLE_MESSAGE)
                 return Result.failure()
@@ -65,14 +60,15 @@ class AutoBackupWorker(
             when (val result = container.backupManager.exportBackup(file.uri)) {
                 is BackupResult.ExportSuccess -> {
                     store.recordSuccess(System.currentTimeMillis(), result.expenseCount)
-                    prune(tree)
                     Result.success()
                 }
                 is BackupResult.Failure -> retryOrFail(store::recordError, result.reason)
                 // Import can't come out of an export call; treat defensively.
                 is BackupResult.ImportSuccess -> Result.success()
             }
-        } catch (t: Throwable) {
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (t: Exception) {
             retryOrFail(store::recordError, t.message ?: "备份发生异常 请重试")
         }
     }
@@ -92,16 +88,6 @@ class AutoBackupWorker(
         return if (tree.exists() && tree.canWrite()) tree else null
     }
 
-    private fun prune(tree: DocumentFile) {
-        val children = tree.listFiles()
-        val doomed = BackupRotation.filesToPrune(children.mapNotNull { it.name }).toSet()
-        children
-            .filter { it.name in doomed }
-            // Individual delete failures are ignored: worst case an extra old
-            // backup lingers until the next successful run prunes it.
-            .forEach { runCatching { it.delete() } }
-    }
-
     private suspend fun retryOrFail(
         recordError: suspend (String) -> Unit,
         reason: String
@@ -115,8 +101,10 @@ class AutoBackupWorker(
     }
 
     companion object {
+        private val folderLock = Mutex()
         private const val UNIQUE_PERIODIC = "spendwise_auto_backup"
         private const val UNIQUE_ONESHOT = "spendwise_backup_now"
+        private const val LATEST_FILE = "qingji-latest-backup.json"
         private const val KEY_MANUAL = "manual"
         private const val MAX_ATTEMPTS = 3
         private const val FOLDER_INACCESSIBLE_MESSAGE =
@@ -156,6 +144,12 @@ class AutoBackupWorker(
             WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_PERIODIC)
         }
 
+        fun onOpen(context: Context) {
+            val request = OneTimeWorkRequestBuilder<AutoBackupWorker>().build()
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(UNIQUE_ONESHOT, ExistingWorkPolicy.KEEP, request)
+        }
+
         /** One-shot run of the same worker — the "立即备份" button. */
         fun backupNow(context: Context) {
             val request = OneTimeWorkRequestBuilder<AutoBackupWorker>()
@@ -163,7 +157,7 @@ class AutoBackupWorker(
                 .setInputData(workDataOf(KEY_MANUAL to true))
                 .build()
             WorkManager.getInstance(context)
-                .enqueueUniqueWork(UNIQUE_ONESHOT, ExistingWorkPolicy.REPLACE, request)
+                .enqueueUniqueWork(UNIQUE_ONESHOT, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
     }
 }

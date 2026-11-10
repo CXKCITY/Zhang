@@ -11,7 +11,10 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -61,6 +64,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.draw.drawBehind
@@ -267,8 +271,11 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel, launchCoverVisible: Bo
             entryShown = request
             entryModal.animateTo(1f, BotMotion.SheetOpen)
         } else if (entryShown != null) {
-            entryModal.animateTo(0f, BotMotion.SheetClose)
-            entryShown = null
+            try {
+                entryModal.animateTo(0f, BotMotion.SheetClose)
+            } finally {
+                if (entryRequest == null) entryShown = null
+            }
         }
     }
 
@@ -288,7 +295,9 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel, launchCoverVisible: Bo
 
     var homeFlipTarget by remember { mutableStateOf<YearMonth?>(null) }
     var homeFlipDirection by remember { mutableStateOf(0) }
+    var homeShortcutTarget by remember { mutableStateOf<YearMonth?>(null) }
     val changeMonth: (YearMonth) -> Unit = {
+        homeShortcutTarget = null
         homeFlipTarget = null
         viewModel.setSelectedMonth(it)
         viewModel.setActivityRange(null)
@@ -319,15 +328,16 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel, launchCoverVisible: Bo
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) viewModel.exportBackup(uri)
     }
-    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            scope.launch {
-                when (val preview = viewModel.previewBackup(uri)) {
-                    is BackupPreview.Ready -> restoreReview = RestoreReview(uri, displayName(context, uri), preview)
-                    is BackupPreview.Invalid -> toast.show(preview.reason)
-                }
+    val reviewBackup: (Uri, String) -> Unit = { uri, name ->
+        scope.launch {
+            when (val preview = viewModel.previewBackup(uri)) {
+                is BackupPreview.Ready -> restoreReview = RestoreReview(uri, name, preview)
+                is BackupPreview.Invalid -> toast.show(preview.reason)
             }
         }
+    }
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) reviewBackup(uri, displayName(context, uri))
     }
     val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -349,7 +359,7 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel, launchCoverVisible: Bo
         toast.show(
             when (result) {
                 is BackupResult.ExportSuccess -> "备份已保存 · ${result.expenseCount} 笔记录"
-                is BackupResult.ImportSuccess -> "备份已恢复 · ${result.expenseCount} 笔记录"
+                is BackupResult.ImportSuccess -> "已合并备份 · 新增 ${result.expenseCount} 笔记录"
                 is BackupResult.Failure -> result.reason
             }
         )
@@ -508,39 +518,65 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel, launchCoverVisible: Bo
                     }
                 ) {
                     composable(Routes.Home) {
-                        val pageMonth = state.summary.month
-                        val flipMonth: (Int) -> Unit = { direction ->
-                            val next = pageMonth.plusMonths(direction.toLong())
-                            if (month == pageMonth && homeFlipTarget != next &&
-                                next <= YearMonth.from(todayKl())
-                            ) {
-                                homeFlipDirection = direction
-                                homeFlipTarget = next
-                                viewModel.setSelectedMonth(next)
-                            }
+                        val loadedMonth = state.summary.month
+                        val shortcut = remember(loadedMonth) { homeShortcutTarget == loadedMonth }
+                        val enteringDirection = remember(loadedMonth) {
+                            if (homeFlipTarget == loadedMonth) homeFlipDirection else 0
                         }
-                        val spentByCategory = remember(monthItems) {
-                            monthItems.groupingBy { (it as LedgerItem.Entry).expense.categoryId }
-                                .fold(0L) { amount, item -> amount + item.cents }
+                        LaunchedEffect(loadedMonth) {
+                            if (homeFlipTarget == loadedMonth) homeFlipTarget = null
+                            if (homeShortcutTarget == loadedMonth) homeShortcutTarget = null
                         }
-                        key(pageMonth) {
-                            val enteringDirection = remember {
-                                if (homeFlipTarget == pageMonth) homeFlipDirection else 0
+                        AnimatedContent(
+                            targetState = Triple(state, monthItems, shortcut),
+                            contentKey = { it.first.summary.month },
+                            modifier = Modifier.fillMaxSize().clipToBounds(),
+                            transitionSpec = {
+                                if (!targetState.third) {
+                                    EnterTransition.None togetherWith ExitTransition.None
+                                } else {
+                                    val older = targetState.first.summary.month < initialState.first.summary.month
+                                    val motion = tween<IntOffset>(durationMillis = 190)
+                                    slideInVertically(motion) { if (older) it else -it } togetherWith
+                                        slideOutVertically(motion) { if (older) -it else it }
+                                }
+                            },
+                            label = "Home month"
+                        ) { (page, items, _) ->
+                            val pageMonth = page.summary.month
+                            val isCurrentPage = month == pageMonth
+                            val flipMonth: (Int) -> Unit = { direction ->
+                                val next = pageMonth.plusMonths(direction.toLong())
+                                if (month == pageMonth && homeFlipTarget != next &&
+                                    next <= YearMonth.from(todayKl())
+                                ) {
+                                    homeFlipDirection = direction
+                                    homeFlipTarget = next
+                                    viewModel.setSelectedMonth(next)
+                                }
                             }
-                            LaunchedEffect(pageMonth) {
-                                if (homeFlipTarget == pageMonth) homeFlipTarget = null
+                            val spentByCategory = remember(items) {
+                                items.groupingBy { (it as LedgerItem.Entry).expense.categoryId }
+                                    .fold(0L) { amount, item -> amount + item.cents }
                             }
                             HomeScreen(
                                 month = pageMonth,
-                                items = monthItems,
-                                categories = state.categories,
-                                accounts = state.accounts + state.archivedAccounts,
+                                items = items,
+                                categories = page.categories,
+                                accounts = page.accounts + page.archivedAccounts,
                                 query = activityQuery,
                                 range = activityRange,
                                 bottomPadding = tabClearance,
-                                canFlipMonth = month == pageMonth,
-                                enteringDirection = enteringDirection,
+                                canFlipMonth = isCurrentPage,
+                                enteringDirection = remember(pageMonth) { enteringDirection },
                                 onFlipMonth = flipMonth,
+                                onJumpMonth = { target ->
+                                    if (month == pageMonth && homeShortcutTarget != target) {
+                                        homeFlipTarget = null
+                                        homeShortcutTarget = target
+                                        viewModel.setSelectedMonth(target)
+                                    }
+                                },
                                 onQueryChange = {
                                     activityKind = it.kind
                                     activitySearch = it.search
@@ -552,8 +588,8 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel, launchCoverVisible: Bo
                                 hero = {
                                     HomeHero(
                                         month = pageMonth,
-                                        totalExpense = state.summary.totalExpenseCents,
-                                        categories = state.categories,
+                                        totalExpense = page.summary.totalExpenseCents,
+                                        categories = page.categories,
                                         spentByCategory = spentByCategory,
                                         onMonthChange = { target ->
                                             homeFlipTarget = null
@@ -566,7 +602,7 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel, launchCoverVisible: Bo
                                         onAdd = { openEntry(EntryKind.Expense, todayKl()) }
                                     )
                                 },
-                                onHeroCoveredChange = { homeHeroCovered = it },
+                                onHeroCoveredChange = { if (pageMonth == state.summary.month) homeHeroCovered = it },
                                 onAdd = { openEntry(EntryKind.Expense, todayKl()) },
                                 onOpenFilters = { filtersOpen = true },
                                 onOpenItem = { detail = it },
@@ -684,6 +720,7 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel, launchCoverVisible: Bo
                                 }
                             },
                             onRestore = { restoreLauncher.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) },
+                            onRestoreStartup = { reviewBackup(viewModel.startupBackupUri(), "最近自动备份") },
                             onToggleDaily = { enable ->
                                 when {
                                     enable && backupSettings.treeUri == null -> folderLauncher.launch(null)
@@ -766,6 +803,7 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel, launchCoverVisible: Bo
                             recentExpenses = recentExpenses,
                             formError = formError,
                             presentation = entryModal,
+                            active = entryRequest != null,
                             onClearError = viewModel::clearFormError,
                             onSaveExpense = viewModel::saveExpense,
                             onNoteSuggestions = viewModel::noteSuggestions,
@@ -1043,7 +1081,6 @@ fun ExpenseTrackerApp(viewModel: ExpenseTrackerViewModel, launchCoverVisible: Bo
 
             RestoreReviewSheet(
                 review = restoreReview,
-                currentEntries = entryCounts.values.sum(),
                 onConfirm = { review ->
                     restoreReview = null
                     viewModel.importBackup(review.uri)

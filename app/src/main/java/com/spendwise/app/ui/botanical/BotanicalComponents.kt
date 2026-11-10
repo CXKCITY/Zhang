@@ -22,6 +22,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -78,11 +81,13 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.layout
@@ -101,6 +106,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -1423,13 +1429,7 @@ internal fun amountGlyphs(cents: Long): List<AmountGlyph> {
 
 private val HiddenSelection = TextSelectionColors(handleColor = Color.Transparent, backgroundColor = Color.Transparent)
 
-/**
- * Fixed-sen amount (`AmountInput`): digits fill from the right — typing 1, 2,
- * 3 reads 0.01, 0.12, 1.23 — and the decimal is never typed. Each new digit
- * rises in at the right while the others glide left, and once the figure no
- * longer fits it eases smaller, returning to full size as it shortens.
- * Capped at ¥ 999,999,999.99 (11 digits), as the prototype.
- */
+/** Amount expression and its dedicated on-screen keypad. */
 @Composable
 fun AmountInput(
     cents: Long,
@@ -1445,6 +1445,7 @@ fun AmountInput(
     onPadOpenChange: (Boolean) -> Unit = {}
 ) {
     var expression by remember { mutableStateOf(if (cents == 0L) "" else com.spendwise.app.domain.MoneyFormatter.centsToInput(cents)) }
+    var cursor by remember { mutableIntStateOf(expression.length) }
     val result = AmountExpression.evaluate(expression)
     var keypadOpen by remember { mutableStateOf(initiallyOpen) }
     LaunchedEffect(keypadOpen) { onPadOpenChange(keypadOpen) }
@@ -1455,14 +1456,51 @@ fun AmountInput(
     LaunchedEffect(error) { if (error != null) keypadOpen = true }
     Column(modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 64.dp).botPress {
-                focus.clearFocus(); keyboard?.hide(); keypadOpen = true
-            }.semantics { contentDescription = "$label ${expression.ifEmpty { "0" }} 点击打开数字键盘" },
+            Modifier.fillMaxWidth().heightIn(min = 64.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("¥", style = body(28f), color = ink, modifier = Modifier.padding(end = 8.dp))
-            Text(expression.ifEmpty { "0.00" }, style = body(30f, FontWeight.Medium), color = ink,
-                maxLines = 2, modifier = Modifier.weight(1f))
+            val amountScroll = rememberScrollState()
+            var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+            val shown = expression.ifEmpty { "0.00" }
+            val caret = layout?.takeIf { it.layoutInput.text.text == shown }?.getCursorRect(cursor)
+            LaunchedEffect(caret, amountScroll.maxValue) {
+                val x = caret?.left?.roundToInt() ?: return@LaunchedEffect
+                val viewport = amountScroll.viewportSize
+                if (viewport <= 0 || amountScroll.maxValue == Int.MAX_VALUE) return@LaunchedEffect
+                if (x < amountScroll.value) amountScroll.scrollTo(x)
+                else if (x + 4 > amountScroll.value + viewport) {
+                    amountScroll.scrollTo((x + 4 - viewport).coerceAtMost(amountScroll.maxValue))
+                }
+            }
+            Box(Modifier.weight(1f).horizontalScroll(amountScroll)) {
+                Text(
+                    shown,
+                    style = body(30f, FontWeight.Medium),
+                    color = ink,
+                    maxLines = 1,
+                    softWrap = false,
+                    onTextLayout = { layout = it },
+                    modifier = Modifier
+                        .semantics { contentDescription = "$label $shown 点击定位光标" }
+                        .pointerInput(expression) {
+                            detectTapGestures { point ->
+                                cursor = (layout?.getOffsetForPosition(point) ?: expression.length)
+                                    .coerceIn(0, expression.length)
+                                focus.clearFocus()
+                                keyboard?.hide()
+                                keypadOpen = true
+                            }
+                        }
+                        .padding(end = 4.dp)
+                        .drawBehind {
+                            if (keypadOpen && keyboardAllowed && caret != null) {
+                                drawLine(ink, Offset(caret.left, caret.top), Offset(caret.left, caret.bottom),
+                                    strokeWidth = 2.dp.toPx())
+                            }
+                        }
+                )
+            }
             TextLinkButton(
                 if (keypadOpen && keyboardAllowed) "收起键盘" else "展开键盘",
                 onClick = {
@@ -1493,9 +1531,12 @@ fun AmountInput(
                                         if (key == "日期") {
                                             onPickDate?.invoke()
                                         } else {
-                                            expression = AmountKeypad.press(expression, key)
-                                            onChange(AmountExpression.evaluate(expression) ?: 0L)
-                                            if (done && AmountExpression.evaluate(expression) != null) {
+                                            val edited = AmountKeypad.press(expression, key, cursor)
+                                            expression = edited.text
+                                            cursor = edited.cursor
+                                            val evaluated = AmountExpression.evaluate(expression)
+                                            onChange(evaluated ?: 0L)
+                                            if (done && evaluated != null) {
                                                 keypadOpen = false
                                             }
                                         }

@@ -3,6 +3,11 @@ package com.spendwise.app
 import android.animation.ValueAnimator
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import com.spendwise.app.backup.AutoBackupWorker
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -62,6 +67,22 @@ open class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (isChangingConfigurations) return
+        val container = (application as ExpenseTrackerApplication).container
+        lifecycleScope.launch {
+            try {
+                container.backupManager.saveStartupBackup()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w("LedgerBackup", "Unable to save startup backup", failure)
+            }
+        }
+        AutoBackupWorker.onOpen(this)
     }
 
     override fun onStop() {
